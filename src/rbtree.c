@@ -1,5 +1,6 @@
 #include "include/rbtree.h"
 #include <assert.h>
+#include <endian.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -7,15 +8,21 @@
  * https://doxygen.postgresql.org/rbtree_8c_source.html
  */
 
-int cmp_key(uint64_t *a, uint64_t *b) {
-  if (a[0] < b[0])
-    return -1;
-  if (a[0] > b[0])
-    return 1;
-  if (a[1] < b[1])
-    return -1;
-  if (a[1] > b[1])
-    return 1;
+/* use to have a sizeof available without doint sizeof(((struct RBTreeNode
+ * *)NULL)->key) which is UB even if linux kernel has
+ * # define offsetof(TYPE, MEMBER)	((size_t)&((TYPE *)0)->MEMBER)
+ */
+static struct RBTreeNode __node;
+int cmp_key(const RBTREE_KEY_BASE_TYPE *a, const RBTREE_KEY_BASE_TYPE *b) {
+  const size_t size = sizeof(__node.key) / sizeof(*a);
+  for (size_t i = 0; i < size; i++) {
+    if (a[i] < b[i]) {
+      return -1;
+    }
+    if (a[i] > b[i]) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -40,13 +47,20 @@ void rbtree_dump(struct RBTreeNode *root, int level, char branch) {
   for (int i = 0; i < level; i++) {
     printf("  ");
   }
-  printf("%05lu -- %c (%s)\n", root->key[0], branch,
-         IS_RED(root) ? "RED" : "BLACK");
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+  for (int i = sizeof(root->key) - 1; i >= 0; i--) {
+#else
+  for (int i = 0; i < sizeof(root->key); i++) {
+#endif
+    printf("%x", ((uint8_t *)root->key)[i]);
+  }
+  printf(" -- %c (%s)\n", branch, IS_RED(root) ? "RED" : "BLACK");
   rbtree_dump(root->left, level + 1, 'L');
   rbtree_dump(root->right, level + 1, 'R');
 }
 
-struct RBTreeNode *_rbtree_search(struct RBTree *tree, uint64_t *key,
+struct RBTreeNode *_rbtree_search(struct RBTree *tree,
+                                  const RBTREE_KEY_BASE_TYPE *key,
                                   struct RBTreeNode **parent) {
   assert(tree != NULL);
   assert(key != NULL);
@@ -92,11 +106,7 @@ inline static void _rotate(struct RBTree *tree, struct RBTreeNode *x,
     y->parent = x->parent;
   }
   if (x->parent) {
-    if (x == x->parent->left) {
-      x->parent->left = y;
-    } else {
-      x->parent->right = y;
-    }
+    x->parent->child[x == x->parent->right] = y;
   } else {
     tree->root = y;
   }
@@ -161,9 +171,6 @@ struct RBTree *rbtree_create() {
   struct RBTree *tree = calloc(1, sizeof(struct RBTree));
   return tree;
 }
-
-void _destroy_node(struct RBTreeNode *node) {}
-
 void rbtree_destroy(struct RBTree *tree) {
   struct RBTreeNode *node = NULL;
   node = tree->root;
@@ -172,22 +179,30 @@ void rbtree_destroy(struct RBTree *tree) {
     return;
   }
 
-  while (!IS_NIL(node->left)) {
-    node = node->left;
-  }
-  while (node->parent != NULL) {
-    struct RBTreeNode *tmp = node->parent;
-    rbtree_free_node(node);
-    node = tmp;
-    tmp->left = NULL;
-  }
+  do {
+    while (!IS_NIL(node->left)) {
+      node = node->left;
+    }
+    if (!IS_NIL(node->right)) {
+      node = node->right;
+      continue;
+    }
+    struct RBTreeNode *c = node;
+    c = node;
+    node = node->parent;
+    if (node) {
+      node->child[c == node->right] = SENTINEL;
+    }
+    rbtree_free_node(c);
+  } while (!IS_NIL(node) && node != NULL);
+
+  free(tree);
 }
 
-struct RBTreeNode *rbtree_create_node(uint64_t key[2], uintptr_t data) {
+struct RBTreeNode *rbtree_create_node(RBTREE_KEY, uintptr_t data) {
   struct RBTreeNode *new = calloc(1, sizeof(*new));
   if (new) {
-    new->key[0] = key[0];
-    new->key[1] = key[1];
+    memcpy(new->key, key, sizeof(new->key));
     new->data = data;
     new->left = SENTINEL;
     new->right = SENTINEL;
@@ -198,7 +213,7 @@ struct RBTreeNode *rbtree_create_node(uint64_t key[2], uintptr_t data) {
   return new;
 }
 
-uintptr_t rbtree_search(struct RBTree *tree, uint64_t *key) {
+uintptr_t rbtree_search(struct RBTree *tree, const RBTREE_KEY_BASE_TYPE *key) {
   struct RBTreeNode *node = _rbtree_search(tree, key, NULL);
   if (IS_NIL(node)) {
     return (uintptr_t)NULL;
@@ -230,9 +245,9 @@ inline static void _delete_fixup(struct RBTree *tree, struct RBTreeNode *x) {
         SET_RED(w);
         _rotate(tree, w, !direction);
       }
+      SET_BLACK(w->left);
       w->color = x->parent->color;
       SET_BLACK(x->parent);
-      SET_BLACK(w->left);
       _rotate(tree, x->parent, direction);
       x = tree->root;
     }
@@ -245,7 +260,6 @@ struct RBTreeNode *rbtree_delete(struct RBTree *tree, uint64_t *key) {
   if (!z || IS_NIL(z)) {
     return NULL;
   }
-
   struct RBTreeNode *y, *x;
 
   /* any children */
@@ -262,20 +276,12 @@ struct RBTreeNode *rbtree_delete(struct RBTree *tree, uint64_t *key) {
   }
 
   /* from here, we deal only with single or no child node */
-  if (!IS_NIL(y->left)) {
-    x = y->left;
-  } else {
-    x = y->right;
-  }
+  x = y->child[!IS_NIL(y->right)];
 
   /* disconnect node */
   x->parent = y->parent;
   if (y->parent) {
-    if (y == y->parent->left) {
-      y->parent->left = x;
-    } else {
-      y->parent->right = x;
-    }
+    y->parent->child[y == y->parent->right] = x;
   } else {
     tree->root = x;
   }

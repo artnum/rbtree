@@ -40,30 +40,34 @@ int main(int argc, char **argv) {
     struct RBTreeNode *new = rbtree_create_node(x, (uintptr_t)NULL);
     rbtree_insert(tree, new, NULL);
   }
-  rbtree_dump(tree->root, 0, 'R');
+  printf("--- AFTER CREATION ---\n");
+  rbtree_dump(tree->root, 0, '#');
   uint64_t x[2] = {12, 0};
   tmp = rbtree_delete(tree, x);
   if (tmp) {
     rbtree_free_node(tmp);
   }
+
   x[0] = 2;
   tmp = rbtree_delete(tree, x);
   if (tmp) {
     rbtree_free_node(tmp);
+    tmp = NULL;
   }
   x[0] = 8;
   tmp = rbtree_delete(tree, x);
   if (tmp) {
     rbtree_free_node(tmp);
+    tmp = NULL;
   }
   x[0] = 15;
   tmp = rbtree_delete(tree, x);
   if (tmp) {
     rbtree_free_node(tmp);
+    tmp = NULL;
   }
+  printf("--- AFTER DELETION ---\n");
   rbtree_dump(tree->root, 0, '#');
-
-  x[0] = 18;
-  printf("KEY 18 : %p\n", (void *)rbtree_search(tree, x));
+  rbtree_destroy(tree);
   return 0;
 }
