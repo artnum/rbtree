@@ -1,4 +1,4 @@
-#include "include/index.h"
+#include "include/rbtree.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,12 +27,12 @@ int cmp_key(uint64_t *a, uint64_t *b) {
 #define SET_RED(n) ((n)->color = RED)
 enum RBDirection { LEFT, RIGHT };
 
-static struct Index __sentinel = {
+static struct RBTreeNode __sentinel = {
     .color = BLACK, .left = SENTINEL, .right = SENTINEL, .parent = NULL};
 
-void index_free_node(struct Index *idx) { free(idx); }
+void rbtree_free_node(struct RBTreeNode *idx) { free(idx); }
 
-void print_rb_tree(struct Index *root, int level, char branch) {
+void rbtree_dump(struct RBTreeNode *root, int level, char branch) {
   if (IS_NIL(root)) {
     return;
   }
@@ -42,12 +42,12 @@ void print_rb_tree(struct Index *root, int level, char branch) {
   }
   printf("%05lu -- %c (%s)\n", root->key[0], branch,
          IS_RED(root) ? "RED" : "BLACK");
-  print_rb_tree(root->left, level + 1, 'L');
-  print_rb_tree(root->right, level + 1, 'R');
+  rbtree_dump(root->left, level + 1, 'L');
+  rbtree_dump(root->right, level + 1, 'R');
 }
 
-struct Index *_index_search(struct RBTree *tree, uint64_t *key,
-                            struct Index **parent) {
+struct RBTreeNode *_rbtree_search(struct RBTree *tree, uint64_t *key,
+                                  struct RBTreeNode **parent) {
   assert(tree != NULL);
   assert(key != NULL);
 
@@ -58,7 +58,7 @@ struct Index *_index_search(struct RBTree *tree, uint64_t *key,
     return SENTINEL;
   }
 
-  struct Index *node = tree->root;
+  struct RBTreeNode *node = tree->root;
   for (;;) {
     if (IS_NIL(node)) {
       return SENTINEL;
@@ -80,9 +80,9 @@ struct Index *_index_search(struct RBTree *tree, uint64_t *key,
   }
 }
 
-inline static void _rotate(struct RBTree *tree, struct Index *x,
+inline static void _rotate(struct RBTree *tree, struct RBTreeNode *x,
                            enum RBDirection direction) {
-  struct Index *y = x->child[!direction];
+  struct RBTreeNode *y = x->child[!direction];
   x->child[!direction] = y->child[direction];
   if (!IS_NIL(y->child[direction])) {
     y->child[direction]->parent = x;
@@ -106,10 +106,10 @@ inline static void _rotate(struct RBTree *tree, struct Index *x,
   }
 }
 
-inline static void _insert_fixup(struct RBTree *tree, struct Index *x) {
+inline static void _insert_fixup(struct RBTree *tree, struct RBTreeNode *x) {
   while (x != tree->root && IS_RED(x->parent)) {
     enum RBDirection direction = x->parent == x->parent->parent->right;
-    struct Index *y = x->parent->parent->child[!direction];
+    struct RBTreeNode *y = x->parent->parent->child[!direction];
     if (IS_RED(y)) {
       SET_BLACK(x->parent);
       SET_BLACK(y);
@@ -128,9 +128,10 @@ inline static void _insert_fixup(struct RBTree *tree, struct Index *x) {
   }
   SET_BLACK(tree->root);
 }
-void index_insert(struct RBTree *tree, struct Index *node, void **olddata) {
-  struct Index *parent = NULL;
-  struct Index *found = _index_search(tree, node->key, &parent);
+void rbtree_insert(struct RBTree *tree, struct RBTreeNode *node,
+                   uintptr_t *olddata) {
+  struct RBTreeNode *parent = NULL;
+  struct RBTreeNode *found = _rbtree_search(tree, node->key, &parent);
 
   if (IS_NIL(found) && parent == NULL) {
     tree->root = node;
@@ -147,6 +148,12 @@ void index_insert(struct RBTree *tree, struct Index *node, void **olddata) {
       parent->right = node;
     }
     _insert_fixup(tree, node);
+  } else {
+    if (olddata) {
+      *olddata = found->data;
+    }
+    found->data = node->data;
+    rbtree_free_node(node);
   }
 }
 
@@ -155,10 +162,10 @@ struct RBTree *rbtree_create() {
   return tree;
 }
 
-void _destroy_node(struct Index *node) {}
+void _destroy_node(struct RBTreeNode *node) {}
 
 void rbtree_destroy(struct RBTree *tree) {
-  struct Index *node = NULL;
+  struct RBTreeNode *node = NULL;
   node = tree->root;
   if (!node) {
     free(tree);
@@ -169,23 +176,19 @@ void rbtree_destroy(struct RBTree *tree) {
     node = node->left;
   }
   while (node->parent != NULL) {
-    struct Index *tmp = node->parent;
-    index_free_node(node);
+    struct RBTreeNode *tmp = node->parent;
+    rbtree_free_node(node);
     node = tmp;
     tmp->left = NULL;
   }
 }
 
-struct Index *index_create(uint64_t key[2], void *data) {
-  struct Index *new = calloc(1, sizeof(*new));
+struct RBTreeNode *rbtree_create_node(uint64_t key[2], uintptr_t data) {
+  struct RBTreeNode *new = calloc(1, sizeof(*new));
   if (new) {
     new->key[0] = key[0];
     new->key[1] = key[1];
-    if (data) {
-      new->data = data;
-    } else {
-      new->data = new->key;
-    }
+    new->data = data;
     new->left = SENTINEL;
     new->right = SENTINEL;
     new->parent = NULL;
@@ -195,27 +198,23 @@ struct Index *index_create(uint64_t key[2], void *data) {
   return new;
 }
 
-void *index_search(struct RBTree *tree, uint64_t *key) {
-  struct Index *node = _index_search(tree, key, NULL);
+uintptr_t rbtree_search(struct RBTree *tree, uint64_t *key) {
+  struct RBTreeNode *node = _rbtree_search(tree, key, NULL);
   if (IS_NIL(node)) {
-    return NULL;
+    return (uintptr_t)NULL;
   }
   return node->data;
 }
 
-inline static void _overwrite_node(struct Index *a, struct Index *b) {
+inline static void _overwrite_node(struct RBTreeNode *a, struct RBTreeNode *b) {
   memcpy(a->key, b->key, sizeof(a->key));
-  if (b->data == b->key) {
-    a->data = a->key;
-  } else {
-    a->data = b->data;
-  }
+  a->data = b->data;
 }
 
-inline static void _delete_fixup(struct RBTree *tree, struct Index *x) {
+inline static void _delete_fixup(struct RBTree *tree, struct RBTreeNode *x) {
   while (x != tree->root && IS_BLACK(x)) {
     enum RBDirection direction = x == x->parent->right;
-    struct Index *w = x->parent->child[!direction];
+    struct RBTreeNode *w = x->parent->child[!direction];
     if (IS_RED(w)) {
       SET_BLACK(w);
       SET_RED(x->parent);
@@ -241,13 +240,13 @@ inline static void _delete_fixup(struct RBTree *tree, struct Index *x) {
   SET_BLACK(x);
 }
 
-struct Index *index_delete(struct RBTree *tree, uint64_t *key) {
-  struct Index *z = _index_search(tree, key, NULL);
+struct RBTreeNode *rbtree_delete(struct RBTree *tree, uint64_t *key) {
+  struct RBTreeNode *z = _rbtree_search(tree, key, NULL);
   if (!z || IS_NIL(z)) {
     return NULL;
   }
 
-  struct Index *y, *x;
+  struct RBTreeNode *y, *x;
 
   /* any children */
   if (IS_NIL(z->left) || IS_NIL(z->right)) {
