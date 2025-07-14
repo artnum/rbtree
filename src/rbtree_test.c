@@ -1,6 +1,7 @@
 #include "include/rbtree.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 int main(int argc, char **argv) {
   uint64_t value[] = {1,  2,  3,  4,  5,  6,  7,  8,  9,
@@ -44,6 +45,20 @@ int main(int argc, char **argv) {
 
   printf("--- AFTER DELETION ---\n");
   rbtree_dump(tree->root, 0, '#');
+
   rbtree_destroy(tree);
+
+  tree = rbtree_create();
+  for (int i = 0; i < 18; i++) {
+    uint64_t x[2] = {value[i], 0};
+    struct RBTreeNode *new = rbtree_create_node(x, (uintptr_t)NULL);
+    rbtree_insert(tree, new, NULL);
+  }
+  for (int i = 0; i < 18; i++) {
+    uint64_t x[2] = {value[i], 0};
+    struct RBTreeNode *old = rbtree_delete(tree, x);
+    rbtree_free_node(old);
+  }
+  free(tree);
   return 0;
 }
