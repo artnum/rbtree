@@ -9,5 +9,5 @@ designed to hold [UUID](https://en.wikipedia.org/wiki/Universally_unique_identif
 
 Data part of a node is `uintptr_t` so it can hold either a integer or a pointer.
 
-It implements basic operation : insert, search and delete. So it can be used
-for an in-memory index implementation.
+It implements basic operation : insert, search, delete, left most and
+right most. So it can be used for an in-memory index implementation.

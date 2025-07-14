@@ -1,6 +1,7 @@
 #include "include/rbtree.h"
 #include <assert.h>
 #include <endian.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -199,7 +200,7 @@ void rbtree_destroy(struct RBTree *tree) {
   free(tree);
 }
 
-struct RBTreeNode *rbtree_create_node(RBTREE_KEY, uintptr_t data) {
+struct RBTreeNode *rbtree_create_node(RBTREE_KEY(key), uintptr_t data) {
   struct RBTreeNode *new = calloc(1, sizeof(*new));
   if (new) {
     memcpy(new->key, key, sizeof(new->key));
@@ -255,7 +256,7 @@ inline static void _delete_fixup(struct RBTree *tree, struct RBTreeNode *x) {
   SET_BLACK(x);
 }
 
-struct RBTreeNode *rbtree_delete(struct RBTree *tree, uint64_t *key) {
+struct RBTreeNode *rbtree_delete(struct RBTree *tree, RBTREE_KEY(key)) {
   struct RBTreeNode *z = _rbtree_search(tree, key, NULL);
   if (!z || IS_NIL(z)) {
     return NULL;
@@ -293,4 +294,39 @@ struct RBTreeNode *rbtree_delete(struct RBTree *tree, uint64_t *key) {
   y->parent = NULL;
   memset(y->child, 0, sizeof(y->child));
   return y;
+}
+
+uintptr_t rbtree_leftmost(struct RBTree *tree) {
+  assert(tree != NULL);
+  if (!tree->root) {
+    return (uintptr_t)NULL;
+  }
+  struct RBTreeNode *n = tree->root;
+  while (!IS_NIL(n->left)) {
+    n = n->left;
+  }
+  return n->data;
+}
+
+uintptr_t rbtree_rightmost(struct RBTree *tree) {
+  assert(tree != NULL);
+  if (!tree->root) {
+    return (uintptr_t)NULL;
+  }
+  struct RBTreeNode *n = tree->root;
+  while (!IS_NIL(n->right)) {
+    n = n->right;
+  }
+  return n->data;
+}
+
+void rbtree_change_key(struct RBTree *tree, RBTREE_KEY(old_key),
+                       RBTREE_KEY(new_key)) {
+  struct RBTreeNode *n = rbtree_delete(tree, old_key);
+  if (n != NULL && !IS_NIL(n)) {
+    memcpy(n->key, new_key, sizeof(n->key));
+    n->left = SENTINEL;
+    n->right = SENTINEL;
+    rbtree_insert(tree, n, NULL);
+  }
 }
