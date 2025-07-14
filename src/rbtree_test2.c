@@ -5,7 +5,7 @@
 /* make a big tree */
 int main(int argc, char **argv) {
   struct RBTree *tree = rbtree_create();
-  uint64_t v[2] = {0, 0};
+  RBTREE_KEY(v) = {0, 0};
   FILE *fp = fopen("/dev/random", "r");
 
   for (int i = 0; i < 1000000; i++) {
